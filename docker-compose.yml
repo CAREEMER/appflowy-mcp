@@ -1,6 +1,6 @@
 services:
   appflowy-mcp:
-    image: your-dockerhub-user/appflowy-mcp:latest
+    image: m2n2/appflowy-mcp:latest
     # To build locally instead of pulling:
     # build: .
     restart: unless-stopped

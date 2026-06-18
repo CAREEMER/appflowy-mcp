@@ -1,5 +1,5 @@
 image:
-  repository: your-dockerhub-user/appflowy-mcp
+  repository: m2n2/appflowy-mcp
   tag: ""              # defaults to .Chart.appVersion
   pullPolicy: IfNotPresent
 

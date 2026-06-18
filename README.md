@@ -1,5 +1,18 @@
 # appflowy-mcp
 
+<p align="center">
+  <a href="https://hub.docker.com/r/m2n2/appflowy-mcp"><img alt="Docker Image Version" src="https://img.shields.io/docker/v/m2n2/appflowy-mcp?sort=semver&logo=docker&logoColor=white&label=docker%20hub&color=2496ED"></a>
+  <a href="https://hub.docker.com/r/m2n2/appflowy-mcp"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/m2n2/appflowy-mcp?logo=docker&logoColor=white&color=2496ED"></a>
+  <a href="https://hub.docker.com/r/m2n2/appflowy-mcp/tags"><img alt="Docker Image Size" src="https://img.shields.io/docker/image-size/m2n2/appflowy-mcp/latest?logo=docker&logoColor=white&label=image%20size&color=2496ED"></a>
+  <img alt="Architectures" src="https://img.shields.io/badge/arch-amd64%20%7C%20arm64-blue?logo=linux&logoColor=white">
+  <a href="https://modelcontextprotocol.io"><img alt="MCP" src="https://img.shields.io/badge/MCP-Model%20Context%20Protocol-7C3AED?logo=anthropic&logoColor=white"></a>
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
+</p>
+
+<p align="center">
+  🐳 <a href="https://hub.docker.com/r/m2n2/appflowy-mcp"><strong><code>m2n2/appflowy-mcp:latest</code> on Docker Hub</strong></a>
+</p>
+
 A **self-hosted, token-scoped [Model Context Protocol](https://modelcontextprotocol.io)
 server for [AppFlowy](https://appflowy.io)**. It gives AI agents (Claude, or any
 MCP client) tools to read and edit your AppFlowy workspaces — list workspaces,
@@ -14,8 +27,8 @@ per-token tree-shaped scopes.
   everything under it, or a page four levels deep and its descendants. Mix and
   match several grants per token.
 - 🐳 **Runs anywhere.** Streamable-HTTP transport, small multi-arch image
-  (amd64 + arm64) on Docker Hub, ready for Docker Compose, Kubernetes, or a Helm
-  chart.
+  ([`m2n2/appflowy-mcp`](https://hub.docker.com/r/m2n2/appflowy-mcp), amd64 +
+  arm64) on Docker Hub, ready for Docker Compose, Kubernetes, or a Helm chart.
 - ✏️ **Real editing.** Append blocks, insert blocks at any position, edit block
   text (rich formatting preserved), and delete blocks — via the same Yjs/CRDT
   path the official web client uses.
@@ -140,7 +153,7 @@ docker run --rm -p 8000:8000 \
   -e APPFLOWY_EMAIL=service@example.com \
   -e APPFLOWY_PASSWORD=secret \
   -e APPFLOWY_MCP_TOKENS='[{"token":"sk-full","scopes":[]}]' \
-  your-dockerhub-user/appflowy-mcp:latest
+  m2n2/appflowy-mcp:latest
 ```
 
 ### Docker Compose

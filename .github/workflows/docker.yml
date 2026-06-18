@@ -3,14 +3,23 @@ name: docker
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref (tag or sha) to build from
+        type: string
+        required: true
+      version:
+        description: Release version without leading v, e.g. 1.2.3
+        type: string
+        required: true
 
 env:
-  # Set repository variable DOCKERHUB_IMAGE (e.g. youruser/appflowy-mcp) and
-  # repository secrets DOCKERHUB_USERNAME / DOCKERHUB_TOKEN.
-  IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'your-dockerhub-user/appflowy-mcp' }}
+  # Override with repository variable DOCKERHUB_IMAGE if needed; set repository
+  # secrets DOCKERHUB_USERNAME / DOCKERHUB_TOKEN for pushing.
+  IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'm2n2/appflowy-mcp' }}
 
 jobs:
   build:
@@ -27,6 +36,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Prepare platform pair
         run: |
@@ -104,11 +115,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
+          # On a plain push to main -> tag the image "main".
+          # On a release (version provided) -> tag 1.2.3, 1.2 and latest.
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch,enable=${{ inputs.version == '' }}
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
 
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
