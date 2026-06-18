@@ -1,0 +1,15 @@
+services:
+  appflowy-mcp:
+    image: your-dockerhub-user/appflowy-mcp:latest
+    # To build locally instead of pulling:
+    # build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

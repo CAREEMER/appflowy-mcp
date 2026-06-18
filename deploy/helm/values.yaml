@@ -1,0 +1,55 @@
+image:
+  repository: your-dockerhub-user/appflowy-mcp
+  tag: ""              # defaults to .Chart.appVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# AppFlowy backend service account.
+appflowy:
+  baseUrl: https://appflowy.example.com
+  email: service@example.com
+  password: ""          # set via --set or a pre-created secret
+  accessToken: ""       # alternative to email/password
+  # Reference an existing secret instead of inlining password/accessToken:
+  existingSecret: ""    # secret must contain keys: password and/or access-token
+
+server:
+  path: /mcp
+  requireAuth: true
+  logLevel: INFO
+  folderCacheTtl: 15
+
+# Client tokens. Rendered into APPFLOWY_MCP_TOKENS (JSON) inside a Secret.
+#   scopes: [] => all workspaces; "WS"/"WS/VIEW"/"WS/A/B/DEEP" otherwise.
+tokens: []
+#  - token: sk-full
+#    name: full
+#    scopes: []
+#  - token: sk-project
+#    name: project
+#    scopes:
+#      - WORKSPACE_ID/ROOT_VIEW_ID
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: appflowy-mcp.example.com
+  tls: false
+  tlsSecretName: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

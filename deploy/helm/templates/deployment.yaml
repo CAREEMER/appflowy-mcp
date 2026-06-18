@@ -1,0 +1,88 @@
+{{- $secretName := .Values.appflowy.existingSecret | default (include "appflowy-mcp.secretName" .) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "appflowy-mcp.fullname" . }}
+  labels:
+    {{- include "appflowy-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "appflowy-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "appflowy-mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: appflowy-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: APPFLOWY_BASE_URL
+              value: {{ .Values.appflowy.baseUrl | quote }}
+            - name: APPFLOWY_EMAIL
+              value: {{ .Values.appflowy.email | quote }}
+            - name: APPFLOWY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: password
+                  optional: true
+            - name: APPFLOWY_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: access-token
+                  optional: true
+            - name: APPFLOWY_MCP_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: tokens
+                  optional: true
+            - name: APPFLOWY_MCP_HOST
+              value: "0.0.0.0"
+            - name: APPFLOWY_MCP_PORT
+              value: "8000"
+            - name: APPFLOWY_MCP_PATH
+              value: {{ .Values.server.path | quote }}
+            - name: APPFLOWY_MCP_REQUIRE_AUTH
+              value: {{ .Values.server.requireAuth | quote }}
+            - name: APPFLOWY_MCP_LOG_LEVEL
+              value: {{ .Values.server.logLevel | quote }}
+            - name: APPFLOWY_MCP_FOLDER_CACHE_TTL
+              value: {{ .Values.server.folderCacheTtl | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

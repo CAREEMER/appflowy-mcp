@@ -1,0 +1,38 @@
+# Point the server at this file with APPFLOWY_MCP_CONFIG=/path/to/config.yaml.
+# Every value here can also be set via environment variables (env wins).
+
+appflowy:
+  base_url: https://appflowy.example.com
+  email: service@example.com
+  password: change-me
+  # access_token: eyJ...   # pre-minted JWT instead of email/password
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  path: /mcp
+  require_auth: true
+  folder_cache_ttl: 15
+  log_level: INFO
+
+# Each token grants a set of tree-shaped scopes.
+#   scopes: []                          -> all workspaces (full access)
+#   "WORKSPACE_ID"                      -> the whole workspace
+#   "WORKSPACE_ID/VIEW_ID"              -> that page + everything nested under it
+#   "WORKSPACE_ID/A/B/DEEP_VIEW_ID"     -> a deep page + its subtree
+# The last id is the allowed subtree root; earlier ids only locate it.
+tokens:
+  - token: sk-full
+    name: full
+    scopes: []
+
+  - token: sk-team
+    name: team-workspace
+    scopes:
+      - "11111111-1111-1111-1111-111111111111"
+
+  - token: sk-project
+    name: project-subtree
+    scopes:
+      - "11111111-1111-1111-1111-111111111111/aaaaaaaa-root-view"
+      - "11111111-1111-1111-1111-111111111111/bbbb-l1/cccc-l2/dddd-deep-view"

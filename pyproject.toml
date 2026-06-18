@@ -1,0 +1,38 @@
+[project]
+name = "appflowy-mcp"
+version = "0.1.0"
+description = "Self-hosted, token-scoped Model Context Protocol (MCP) server for AppFlowy"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "appflowy-mcp contributors" }]
+keywords = ["appflowy", "mcp", "model-context-protocol", "llm", "self-hosted"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastmcp>=2.11",
+    "httpx>=0.28",
+    "pycrdt>=0.12",
+    "pyyaml>=6.0",
+    "uvicorn>=0.34",
+]
+
+[project.urls]
+Homepage = "https://github.com/CAREEMER/appflowy-mcp"
+Repository = "https://github.com/CAREEMER/appflowy-mcp"
+
+[project.scripts]
+appflowy-mcp = "appflowy_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/appflowy_mcp"]
+
+[dependency-groups]
+dev = ["ruff>=0.6"]

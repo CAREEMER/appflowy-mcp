@@ -1,0 +1,6 @@
+apiVersion: v2
+name: appflowy-mcp
+description: Self-hosted, token-scoped MCP server for AppFlowy
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
