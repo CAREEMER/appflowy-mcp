@@ -22,7 +22,7 @@ try:
     from pycrdt import Text as YText
 
     HAS_PYCRDT = True
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001  # pragma: no cover - optional import fallback
     HAS_PYCRDT = False
 
 # AppFlowy block/text ids are 10-char nanoids over this URL-safe alphabet.

@@ -22,7 +22,31 @@ env:
   IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'm2n2/appflowy-mcp' }}
 
 jobs:
+  # Gate the whole pipeline on the test suite + 100% coverage. The image only
+  # builds if this passes (see `needs: test` below).
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests with 100% coverage gate
+        run: uv run pytest
+
   build:
+    needs: test
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

@@ -6,6 +6,7 @@
   <a href="https://hub.docker.com/r/m2n2/appflowy-mcp/tags"><img alt="Docker Image Size" src="https://img.shields.io/docker/image-size/m2n2/appflowy-mcp/latest?logo=docker&logoColor=white&label=image%20size&color=2496ED"></a>
   <img alt="Architectures" src="https://img.shields.io/badge/arch-amd64%20%7C%20arm64-blue?logo=linux&logoColor=white">
   <a href="https://modelcontextprotocol.io"><img alt="MCP" src="https://img.shields.io/badge/MCP-Model%20Context%20Protocol-7C3AED?logo=anthropic&logoColor=white"></a>
+  <a href="./AGENTS.md"><img alt="Coverage" src="https://img.shields.io/badge/coverage-100%25-brightgreen?logo=pytest&logoColor=white"></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
 </p>
 
@@ -227,6 +228,21 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
   cache for their workspace.
 - Open mode (`APPFLOWY_MCP_REQUIRE_AUTH=false` with no tokens) grants full
   access to anyone who can reach the port — only use on a trusted network.
+
+## Development
+
+```bash
+uv sync            # install runtime + dev dependencies
+uv run pytest      # run the test suite with the 100% coverage gate
+uv run ruff check  # lint
+```
+
+The suite enforces **100% line and branch coverage** (`--cov-fail-under=100` in
+[`pyproject.toml`](./pyproject.toml)). CI runs it as the `test` job in
+[`.github/workflows/docker.yml`](./.github/workflows/docker.yml); the Docker
+image build `needs: test`, so a failing test or a coverage drop blocks the
+image from ever being built. See [`AGENTS.md`](./AGENTS.md) for the testing
+definition of done.
 
 ## License
 

@@ -122,7 +122,9 @@ class AppFlowyClient:
             if not resp.content:
                 return {}
             return resp.json()
-        raise AppFlowyError(f"{method} {path} failed after re-authentication")
+        raise AppFlowyError(  # pragma: no cover - loop always returns or raises first
+            f"{method} {path} failed after re-authentication"
+        )
 
     # -- typed-ish helpers used by tools/access control --------------------
     async def list_workspaces(self) -> Any:

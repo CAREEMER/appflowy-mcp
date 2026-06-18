@@ -9,5 +9,8 @@ build/
 *.egg-info/
 .ruff_cache/
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
 .idea/
 .DS_Store
