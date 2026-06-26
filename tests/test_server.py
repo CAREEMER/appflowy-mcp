@@ -307,6 +307,169 @@ async def test_delete_block_when_parent_has_no_children_array(fake_client):
     assert len(fake_client.web_updates) == 1
 
 
+# -- databases -------------------------------------------------------------
+def test_database_view_ids_found():
+    payload = {"data": ["bad", {"id": "DB", "views": [{"view_id": "V"}, {"no": 1}, "x"]}]}
+    assert server._database_view_ids(payload, "DB") == ["V"]
+
+
+def test_database_view_ids_found_without_views():
+    assert server._database_view_ids({"data": [{"id": "DB"}]}, "DB") == []
+
+
+def test_database_view_ids_not_found():
+    payload = {"data": [{"id": "OTHER", "views": [{"view_id": "V"}]}]}
+    assert server._database_view_ids(payload, "DB") == []
+
+
+def test_database_view_ids_non_list():
+    assert server._database_view_ids({"data": {"x": 1}}, "DB") == []
+
+
+async def test_guard_database_workspace_wide_skips_view_lookup(fake_client):
+    await server._guard_database("WS", "DB")
+    assert fake_client.requests == []
+
+
+async def test_guard_database_allows_when_view_in_scope(fake_client, headers):
+    tok = TokenConfig(token="t", scopes=(ScopeEntry("WS", root_view_id="V"),))
+    server.ACCESS = AccessControl(fake_client, [tok])
+    headers["authorization"] = "Bearer t"
+    fake_client.results["/database"] = {"data": [{"id": "DB", "views": [{"view_id": "V"}]}]}
+    assert await server._guard_database("WS", "DB") is tok
+
+
+async def test_guard_database_denies_when_database_not_listed(fake_client, headers):
+    tok = TokenConfig(token="t", scopes=(ScopeEntry("WS", root_view_id="V"),))
+    server.ACCESS = AccessControl(fake_client, [tok])
+    headers["authorization"] = "Bearer t"
+    fake_client.results["/database"] = {"data": [{"id": "OTHER", "views": [{"view_id": "V"}]}]}
+    with pytest.raises(ToolError, match="not allowed to access database"):
+        await server._guard_database("WS", "DB")
+
+
+async def test_guard_database_denies_when_view_out_of_scope(fake_client, headers):
+    tok = TokenConfig(token="t", scopes=(ScopeEntry("WS", root_view_id="V"),))
+    server.ACCESS = AccessControl(fake_client, [tok])
+    headers["authorization"] = "Bearer t"
+    fake_client.results["/database"] = {"data": [{"id": "DB", "views": [{"view_id": "X"}]}]}
+    with pytest.raises(ToolError, match="not allowed to access database"):
+        await server._guard_database("WS", "DB")
+
+
+async def test_create_database_grid_with_name(fake_client):
+    await server.create_database("WS", "parent", name="Tasks", layout=1)
+    body = fake_client.requests[0][2]["json"]
+    assert body == {"parent_view_id": "parent", "layout": 1, "name": "Tasks"}
+
+
+async def test_create_database_without_name(fake_client):
+    await server.create_database("WS", "parent", layout=2)
+    assert "name" not in fake_client.requests[0][2]["json"]
+
+
+async def test_create_database_invalid_layout_raises(fake_client):
+    with pytest.raises(ToolError, match="layout must be"):
+        await server.create_database("WS", "parent", layout=0)
+
+
+async def test_get_workspace_databases_returns_filtered(fake_client):
+    fake_client.request_result = {"data": [{"id": "DB", "views": [{"view_id": "V"}]}]}
+    out = await server.get_workspace_databases("WS")
+    assert out == {"data": [{"id": "DB", "views": [{"view_id": "V"}]}]}
+
+
+async def test_get_database_fields_hits_endpoint(fake_client):
+    await server.get_database_fields("WS", "DB")
+    assert fake_client.requests[0][1].endswith("/database/DB/fields")
+
+
+async def test_get_database_rows_with_details(fake_client):
+    fake_client.results["/row"] = {"data": [{"id": "r1"}]}
+    fake_client.results["/row/detail"] = {"data": [{"id": "r1", "cells": {"Name": "x"}}]}
+    out = await server.get_database_rows("WS", "DB")
+    assert out == {"data": [{"id": "r1", "cells": {"Name": "x"}}]}
+
+
+async def test_get_database_rows_passes_joined_ids(fake_client):
+    fake_client.results["/row"] = {"data": [{"id": "r1"}, {"id": "r2"}]}
+    fake_client.results["/row/detail"] = {"data": []}
+    await server.get_database_rows("WS", "DB")
+    detail = next(r for r in fake_client.requests if r[1].endswith("/detail"))
+    assert detail[2]["params"]["ids"] == "r1,r2"
+
+
+async def test_get_database_rows_with_doc_param(fake_client):
+    fake_client.results["/row"] = {"data": [{"id": "r1"}]}
+    fake_client.results["/row/detail"] = {"data": []}
+    await server.get_database_rows("WS", "DB", with_doc=True)
+    detail = next(r for r in fake_client.requests if r[1].endswith("/detail"))
+    assert detail[2]["params"]["with_doc"] == "true"
+
+
+async def test_get_database_rows_ids_only(fake_client):
+    fake_client.request_result = {"data": [{"id": "r1"}]}
+    out = await server.get_database_rows("WS", "DB", with_details=False)
+    assert out == {"data": [{"id": "r1"}]}
+
+
+async def test_get_database_rows_no_ids_returns_listed(fake_client):
+    fake_client.results["/row"] = {"data": []}
+    out = await server.get_database_rows("WS", "DB")
+    assert out == {"data": []}
+
+
+async def test_get_database_rows_non_list_returns_listed(fake_client):
+    fake_client.results["/row"] = {"data": {"weird": 1}}
+    out = await server.get_database_rows("WS", "DB")
+    assert out == {"data": {"weird": 1}}
+
+
+async def test_get_database_rows_skips_malformed_rows(fake_client):
+    fake_client.results["/row"] = {"data": ["bad", {"no_id": 1}, {"id": "r1"}]}
+    fake_client.results["/row/detail"] = {"data": []}
+    await server.get_database_rows("WS", "DB")
+    detail = next(r for r in fake_client.requests if r[1].endswith("/detail"))
+    assert detail[2]["params"]["ids"] == "r1"
+
+
+async def test_add_database_field_minimal(fake_client):
+    await server.add_database_field("WS", "DB", "Notes", field_type=0)
+    assert fake_client.requests[0][2]["json"] == {"name": "Notes", "field_type": 0}
+
+
+async def test_add_database_field_with_type_option(fake_client):
+    await server.add_database_field(
+        "WS", "DB", "Qty", field_type=1, type_option_data={"format": 1}
+    )
+    assert fake_client.requests[0][2]["json"]["type_option_data"] == {"format": 1}
+
+
+async def test_add_database_row_minimal(fake_client):
+    await server.add_database_row("WS", "DB", {"Name": "x"})
+    assert fake_client.requests[0][2]["json"] == {"cells": {"Name": "x"}}
+
+
+async def test_add_database_row_with_document(fake_client):
+    await server.add_database_row("WS", "DB", {"Name": "x"}, document="# notes")
+    assert fake_client.requests[0][2]["json"]["document"] == "# notes"
+
+
+async def test_update_database_row_minimal(fake_client):
+    await server.update_database_row("WS", "DB", "key-1", {"Name": "x"})
+    assert fake_client.requests[0][2]["json"] == {"pre_hash": "key-1", "cells": {"Name": "x"}}
+
+
+async def test_update_database_row_with_document(fake_client):
+    await server.update_database_row("WS", "DB", "key-1", {"Name": "x"}, document="d")
+    assert fake_client.requests[0][2]["json"]["document"] == "d"
+
+
+async def test_update_database_row_uses_put(fake_client):
+    await server.update_database_row("WS", "DB", "key-1", {})
+    assert fake_client.requests[0][0] == "PUT"
+
+
 # -- trash + favorites -----------------------------------------------------
 async def test_move_page_to_trash(fake_client):
     await server.move_page_to_trash("WS", "P")

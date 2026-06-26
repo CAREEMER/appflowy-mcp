@@ -267,3 +267,96 @@ async def test_filter_views_keeps_in_scope_items():
     tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
     out = await make_access().filter_views_in_workspace(tok, "WS", items)
     assert out == [{"view_id": "C"}]
+
+
+# -- database scoping ------------------------------------------------------
+def test_workspace_wide_true_for_full_access():
+    assert make_access().workspace_wide(full_token(), "WS") is True
+
+
+def test_workspace_wide_true_for_rootless_entry():
+    ac = make_access()
+    assert ac.workspace_wide(scoped_token(ScopeEntry("WS")), "WS") is True
+
+
+def test_workspace_wide_false_for_view_scoped_entry():
+    ac = make_access()
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    assert ac.workspace_wide(tok, "WS") is False
+
+
+async def test_view_any_allowed_true_when_one_view_in_scope():
+    ac = make_access()
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    assert await ac.view_any_allowed(tok, "WS", ["A"]) is True
+
+
+async def test_view_any_allowed_false_when_no_view_in_scope():
+    ac = make_access()
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    assert await ac.view_any_allowed(tok, "WS", ["unknown"]) is False
+
+
+async def test_view_any_allowed_skips_falsy_view_ids():
+    ac = make_access()
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    assert await ac.view_any_allowed(tok, "WS", [None]) is False
+
+
+async def test_filter_databases_passthrough_for_full_access():
+    payload = {"data": [{"id": "DB", "views": [{"view_id": "A"}]}]}
+    assert await make_access().filter_databases(full_token(), "WS", payload) is payload
+
+
+async def test_filter_databases_passthrough_for_workspace_wide_entry():
+    payload = {"data": [{"id": "DB"}]}
+    tok = scoped_token(ScopeEntry("WS"))
+    assert await make_access().filter_databases(tok, "WS", payload) is payload
+
+
+async def test_filter_databases_non_list_passthrough():
+    payload = {"data": {"not": "a list"}}
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    assert await make_access().filter_databases(tok, "WS", payload) is payload
+
+
+async def test_filter_databases_keeps_in_scope_in_data():
+    payload = {
+        "data": [
+            {"id": "DB1", "views": [{"view_id": "A"}]},
+            {"id": "DB2", "views": [{"view_id": "unknown"}]},
+        ]
+    }
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    out = await make_access().filter_databases(tok, "WS", payload)
+    assert [db["id"] for db in out["data"]] == ["DB1"]
+
+
+async def test_filter_databases_keeps_in_scope_bare_list():
+    payload = [
+        {"id": "DB1", "views": [{"view_id": "A"}]},
+        {"id": "DB2", "views": [{"view_id": "unknown"}]},
+    ]
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    out = await make_access().filter_databases(tok, "WS", payload)
+    assert [db["id"] for db in out] == ["DB1"]
+
+
+async def test_filter_databases_strips_out_of_scope_views():
+    payload = {"data": [{"id": "DB", "views": [{"view_id": "A"}, {"view_id": "unknown"}]}]}
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    out = await make_access().filter_databases(tok, "WS", payload)
+    assert out["data"] == [{"id": "DB", "views": [{"view_id": "A"}]}]
+
+
+async def test_filter_databases_drops_malformed_entries():
+    payload = {
+        "data": [
+            "not-a-dict",
+            {"id": "DB2", "views": ["bad", {"no_view": 1}]},
+            {"id": "DB1", "views": [{"view_id": "A"}]},
+        ]
+    }
+    tok = scoped_token(ScopeEntry("WS", root_view_id="A"))
+    out = await make_access().filter_databases(tok, "WS", payload)
+    assert out["data"] == [{"id": "DB1", "views": [{"view_id": "A"}]}]

@@ -186,6 +186,56 @@ class AccessControl:
                 f"{view_id} in workspace {workspace_id}"
             )
 
+    # -- database-level checks --------------------------------------------
+    def workspace_wide(self, token: TokenConfig, workspace_id: str) -> bool:
+        """True when the token reaches the *whole* workspace (full access or an
+        entry with no view root), so per-view database checks can be skipped."""
+        if token.full_access:
+            return True
+        return any(e.root_view_id is None for e in self._workspace_entries(token, workspace_id))
+
+    async def view_any_allowed(
+        self, token: TokenConfig, workspace_id: str, view_ids: list
+    ) -> bool:
+        """True if the token may access at least one of ``view_ids``.
+
+        A database is reachable through any of its grid/board/calendar views, so
+        access to one of them grants access to the database as a whole.
+        """
+        for vid in view_ids:
+            if vid and await self.view_allowed(token, workspace_id, vid):
+                return True
+        return False
+
+    async def filter_databases(
+        self, token: TokenConfig, workspace_id: str, payload: Any
+    ) -> Any:
+        """Prune a database-list payload to databases with an in-scope view.
+
+        A database is kept only if at least one of its views is in scope, and its
+        ``views`` array is narrowed to just those views — a database can be linked
+        from several folder locations, so the others must not leak.
+        """
+        if self.workspace_wide(token, workspace_id):
+            return payload
+        items = unwrap(payload)
+        if not isinstance(items, list):
+            return payload
+        kept = []
+        for db in items:
+            if not isinstance(db, dict):
+                continue
+            in_scope = []
+            for v in db.get("views") or []:
+                vid = v.get("view_id") if isinstance(v, dict) else None
+                if vid and await self.view_allowed(token, workspace_id, vid):
+                    in_scope.append(v)
+            if in_scope:
+                kept.append({**db, "views": in_scope})
+        if isinstance(payload, dict) and "data" in payload:
+            return {**payload, "data": kept}
+        return kept
+
     async def filter_folder(
         self, token: TokenConfig, workspace_id: str, payload: Any
     ) -> Any:

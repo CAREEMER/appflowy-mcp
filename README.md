@@ -215,6 +215,13 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
 | `Insert block` | Insert a new block at any position |
 | `Edit block text` | Replace a block's text/rich content in place |
 | `Delete block` | Delete a leaf block |
+| `Create database` | Create a grid/board/calendar database under a parent |
+| `Get workspace databases` | List databases (+ their views), scoped |
+| `Get database fields` | List a database's fields/columns |
+| `Get database rows` | List rows, with cell values keyed by field name |
+| `Add database field` | Add a column (text, number, select, date, …) |
+| `Add database row` | Add a row from `{field: value}` cells |
+| `Update database row` | Upsert a row by a stable key (idempotent) |
 | `Move page to trash` / `Restore page from trash` / `Delete page from trash` | Trash lifecycle |
 | `Get trash` / `Get favorite pages` | Listings, scoped |
 | `Toggle favorite page` | (Un)favorite a page |
@@ -223,6 +230,11 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
 
 - Block-editing tools require `pycrdt` (bundled). They mirror the web client's
   CRDT `web-update`; there is no official per-block REST endpoint.
+- Database row cells are keyed by field **name or id**; values follow the field
+  type (string for text/URL, number for Number, bool for Checkbox, ISO-8601 for
+  DateTime). `Update database row` derives the row id from `pre_hash`, so reusing
+  a key updates the same row — there is no REST endpoint to edit an arbitrary
+  existing row by its UUID.
 - Scope checks rely on the workspace folder tree, cached for
   `APPFLOWY_MCP_FOLDER_CACHE_TTL` seconds. Newly created pages invalidate the
   cache for their workspace.

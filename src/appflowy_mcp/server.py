@@ -430,6 +430,229 @@ async def delete_block(workspace_id: str, page_id: str, block_id: str) -> Any:
 
 
 # --------------------------------------------------------------------------
+# Databases (grids / boards / calendars)
+# --------------------------------------------------------------------------
+def _database_view_ids(payload: Any, database_id: str) -> list:
+    """Pull a database's view ids out of a `get_workspace_databases` payload."""
+    items = unwrap(payload)
+    if not isinstance(items, list):
+        return []
+    for db in items:
+        if isinstance(db, dict) and db.get("id") == database_id:
+            return [
+                v.get("view_id")
+                for v in (db.get("views") or [])
+                if isinstance(v, dict) and v.get("view_id")
+            ]
+    return []
+
+
+async def _guard_database(workspace_id: str, database_id: str):
+    """Authorise a database operation against the token's view scope.
+
+    The REST API enforces only workspace-level access, so we add the same
+    view-subtree check the page tools use: a database is in scope iff one of its
+    views is. Whole-workspace tokens skip the (extra) view lookup.
+    """
+    tok = _guard_workspace(workspace_id)
+    if ACCESS.workspace_wide(tok, workspace_id):
+        return tok
+    payload = await _api("GET", f"/api/workspace/{workspace_id}/database")
+    view_ids = _database_view_ids(payload, database_id)
+    if not await ACCESS.view_any_allowed(tok, workspace_id, view_ids):
+        raise ToolError(
+            f"token '{tok.name or '?'}' is not allowed to access database "
+            f"{database_id} in workspace {workspace_id}"
+        )
+    return tok
+
+
+@mcp.tool(name="create_database")
+async def create_database(
+    workspace_id: str, parent_view_id: str, name: str = "", layout: int = 1
+) -> Any:
+    """Create a new database (grid/board/calendar) under a parent view.
+
+    Returns the new view_id and database_id. The database starts with default
+    fields (Name, Type, Done) and a few empty rows; use 'Add database field' and
+    'Add database row' to shape and fill it. (For a plain document, use 'Create
+    new page' instead.)
+
+    Args:
+        workspace_id: The workspace to create in.
+        parent_view_id: The parent view/folder; must be within your scope.
+        name: Optional database title.
+        layout: 1=Grid, 2=Board, 3=Calendar.
+    """
+    await _guard_view(workspace_id, parent_view_id)
+    if layout not in (1, 2, 3):
+        raise ToolError("layout must be 1 (Grid), 2 (Board), or 3 (Calendar)")
+    json_data: dict[str, Any] = {"parent_view_id": parent_view_id, "layout": layout}
+    if name:
+        json_data["name"] = name
+    result = await _api(
+        "POST", f"/api/workspace/{workspace_id}/page-view", json=json_data
+    )
+    ACCESS.invalidate(workspace_id)
+    return result
+
+
+@mcp.tool(name="get_workspace_databases")
+async def get_workspace_databases(workspace_id: str) -> Any:
+    """List the databases in a workspace (each with its grid/board/calendar
+    views). Use this to find a database_id for the field/row tools.
+
+    Databases whose views are outside your token's scope are hidden.
+
+    Args:
+        workspace_id: The workspace to read.
+    """
+    tok = _guard_workspace(workspace_id)
+    payload = await _api("GET", f"/api/workspace/{workspace_id}/database")
+    return await ACCESS.filter_databases(tok, workspace_id, payload)
+
+
+@mcp.tool(name="get_database_fields")
+async def get_database_fields(workspace_id: str, database_id: str) -> Any:
+    """List a database's fields/columns (id, name, type, is_primary).
+
+    Cells in 'Add/Update database row' are keyed by a field's name or id, so call
+    this first to learn the column names.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to read; must be within your scope.
+    """
+    await _guard_database(workspace_id, database_id)
+    return await _api(
+        "GET", f"/api/workspace/{workspace_id}/database/{database_id}/fields"
+    )
+
+
+@mcp.tool(name="get_database_rows")
+async def get_database_rows(
+    workspace_id: str,
+    database_id: str,
+    with_details: bool = True,
+    with_doc: bool = False,
+) -> Any:
+    """List a database's rows. With details (default), each row's cells are
+    returned keyed by field name; otherwise just the row ids.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to read; must be within your scope.
+        with_details: Fetch cell values (one extra request). False = ids only.
+        with_doc: Also return each row's attached document, rendered as markdown.
+    """
+    await _guard_database(workspace_id, database_id)
+    base = f"/api/workspace/{workspace_id}/database/{database_id}/row"
+    listed = await _api("GET", base)
+    if not with_details:
+        return listed
+    rows = unwrap(listed)
+    ids = (
+        [r["id"] for r in rows if isinstance(r, dict) and r.get("id")]
+        if isinstance(rows, list)
+        else []
+    )
+    if not ids:
+        return listed
+    # ponytail: ids go in the query string; a database with thousands of rows
+    # could exceed URL limits — page by passing with_details=False then batching
+    # if that ever bites.
+    params: dict[str, Any] = {"ids": ",".join(ids)}
+    if with_doc:
+        params["with_doc"] = "true"
+    return await _api("GET", f"{base}/detail", params=params)
+
+
+@mcp.tool(name="add_database_field")
+async def add_database_field(
+    workspace_id: str,
+    database_id: str,
+    name: str,
+    field_type: int = 0,
+    type_option_data: dict | None = None,
+) -> Any:
+    """Add a field/column to a database. Returns the new field id.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to edit; must be within your scope.
+        name: The column name.
+        field_type: 0=Text, 1=Number, 2=DateTime, 3=SingleSelect, 4=MultiSelect,
+            5=Checkbox, 6=URL, 7=Checklist, 8=LastEditedTime, 9=CreatedTime,
+            10=Relation, 11=Summary, 12=Translate, 13=Time, 14=Media.
+        type_option_data: Optional type-specific config, e.g. {"format": 1} for a
+            Number field.
+    """
+    await _guard_database(workspace_id, database_id)
+    body: dict[str, Any] = {"name": name, "field_type": field_type}
+    if type_option_data is not None:
+        body["type_option_data"] = type_option_data
+    return await _api(
+        "POST", f"/api/workspace/{workspace_id}/database/{database_id}/fields", json=body
+    )
+
+
+@mcp.tool(name="add_database_row")
+async def add_database_row(
+    workspace_id: str,
+    database_id: str,
+    cells: dict,
+    document: str | None = None,
+) -> Any:
+    """Add a new row to a database. Returns the new row id.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to edit; must be within your scope.
+        cells: {field name (or id): value} — string for Text/URL, number for
+            Number, bool for Checkbox, ISO-8601 string for DateTime. Unknown
+            fields are ignored.
+        document: Optional markdown for the row's detail document.
+    """
+    await _guard_database(workspace_id, database_id)
+    body: dict[str, Any] = {"cells": cells}
+    if document is not None:
+        body["document"] = document
+    return await _api(
+        "POST", f"/api/workspace/{workspace_id}/database/{database_id}/row", json=body
+    )
+
+
+@mcp.tool(name="update_database_row")
+async def update_database_row(
+    workspace_id: str,
+    database_id: str,
+    pre_hash: str,
+    cells: dict,
+    document: str | None = None,
+) -> Any:
+    """Create or update a row identified by a stable key (upsert).
+
+    The row id is derived deterministically from ``pre_hash``, so calling this
+    again with the same pre_hash updates the same row — use it for idempotent
+    syncs. Use 'Add database row' to always create a fresh row instead.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to edit; must be within your scope.
+        pre_hash: Stable key identifying the row (e.g. an external record id).
+        cells: {field name (or id): value}; see 'Add database row'.
+        document: Optional markdown for the row's detail document.
+    """
+    await _guard_database(workspace_id, database_id)
+    body: dict[str, Any] = {"pre_hash": pre_hash, "cells": cells}
+    if document is not None:
+        body["document"] = document
+    return await _api(
+        "PUT", f"/api/workspace/{workspace_id}/database/{database_id}/row", json=body
+    )
+
+
+# --------------------------------------------------------------------------
 # Trash + favorites
 # --------------------------------------------------------------------------
 @mcp.tool(name="move_page_to_trash")

@@ -105,14 +105,26 @@ class FakeClient:
         self.requests = []
         self.web_updates = []
         self.request_result = {"code": 0, "data": "ok"}
+        # path-suffix -> scripted result (or Exception); longest match wins,
+        # falling back to request_result. Lets one tool make several calls.
+        self.results = {}
         self.page_view_raw = None
         self.web_update_result = {"ok": True}
+        self.folder_result = {"data": {"view_id": "root", "children": []}}
 
     async def request(self, method, path, **kw):
         self.requests.append((method, path, kw))
-        if isinstance(self.request_result, Exception):
-            raise self.request_result
-        return self.request_result
+        match = None
+        for suffix, val in self.results.items():
+            if path.endswith(suffix) and (match is None or len(suffix) > len(match[0])):
+                match = (suffix, val)
+        result = match[1] if match else self.request_result
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    async def get_folder(self, workspace_id):
+        return self.folder_result
 
     async def get_page_view_raw(self, workspace_id, page_id):
         return self.page_view_raw
