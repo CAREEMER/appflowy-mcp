@@ -218,10 +218,12 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
 | `Create database` | Create a grid/board/calendar database under a parent |
 | `Get workspace databases` | List databases (+ their views), scoped |
 | `Get database fields` | List a database's fields/columns |
-| `Get database rows` | List rows, with cell values keyed by field name |
 | `Add database field` | Add a column (text, number, select, date, …) |
-| `Add database row` | Add a row from `{field: value}` cells |
-| `Update database row` | Upsert a row by a stable key (idempotent) |
+| `List database rows` | List rows, cells keyed by field name (optionally row docs) |
+| `Get database row` | Read one row's cells by id (optionally its doc) |
+| `Create database row` | Add a row from `{field: value}` cells (+ optional markdown doc) |
+| `Update database row` | Edit an existing row's cells in place, by row id |
+| `Delete database row` | Remove a row from every view of the database |
 | `Move page to trash` / `Restore page from trash` / `Delete page from trash` | Trash lifecycle |
 | `Get trash` / `Get favorite pages` | Listings, scoped |
 | `Toggle favorite page` | (Un)favorite a page |
@@ -233,10 +235,11 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
 - `Insert block` with `block_type="image"` embeds a public image URL by
   reference (nothing is uploaded); remove it with `Delete block` like any block.
 - Database row cells are keyed by field **name or id**; values follow the field
-  type (string for text/URL, number for Number, bool for Checkbox, ISO-8601 for
-  DateTime). `Update database row` derives the row id from `pre_hash`, so reusing
-  a key updates the same row — there is no REST endpoint to edit an arbitrary
-  existing row by its UUID.
+  type (string for text/URL, number for Number, bool for Checkbox, ISO-8601 or
+  unix seconds for DateTime, option name(s) for select). `Create database row`
+  goes through the REST endpoint; `Update database row` and `Delete database row`
+  act on an existing row by its id through the CRDT `web-update` path (mirroring
+  the web client), since REST exposes no route to edit or delete a row by UUID.
 - Scope checks rely on the workspace folder tree, cached for
   `APPFLOWY_MCP_FOLDER_CACHE_TTL` seconds. Newly created pages invalidate the
   cache for their workspace.
