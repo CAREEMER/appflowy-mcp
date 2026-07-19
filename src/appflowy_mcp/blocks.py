@@ -61,12 +61,14 @@ def apply_delta_to_text(t, delta) -> None:
         idx += len(s)
 
 
-def block_data_json(block_type: str, heading_level: int, checked: bool) -> str:
+def block_data_json(block_type: str, heading_level: int, checked: bool, url: str = "") -> str:
     """Build the per-type ``data`` JSON string stored on a block."""
     if block_type == "heading":
         return json.dumps({"level": heading_level or 1})
     if block_type == "todo_list":
         return json.dumps({"checked": bool(checked)})
+    if block_type == "image":
+        return json.dumps({"url": url})
     return "{}"
 
 

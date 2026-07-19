@@ -321,6 +321,7 @@ async def insert_block(
     index: int = -1,
     heading_level: int = 1,
     checked: bool = False,
+    url: str = "",
 ) -> Any:
     """Insert a NEW block at a specific position (unlike append, which only
     adds at the end).
@@ -331,14 +332,18 @@ async def insert_block(
         text: Plain text (used when delta is omitted).
         delta: Optional rich-text delta (takes precedence over text).
         block_type: paragraph, heading, bulleted_list, numbered_list,
-            todo_list, or quote.
+            todo_list, quote, or image.
         parent_id: Block id to nest under; "" = page root (top level).
         index: 0-based position among the parent's children; -1 = append.
         heading_level: Heading level 1-3 when block_type is heading.
         checked: Initial checked state when block_type is todo_list.
+        url: Public image URL; required when block_type is image. AppFlowy
+            embeds it by reference (no upload). Remove images with 'Delete block'.
     """
     if not blocks.HAS_PYCRDT:
         raise ToolError("pycrdt is not installed; block tools are unavailable")
+    if block_type == "image" and not url:
+        raise ToolError("block_type 'image' requires a url")
     await _guard_view(workspace_id, page_id)
     doc, document = await _load_page_document(workspace_id, page_id)
     block_map = document["blocks"]
@@ -355,27 +360,29 @@ async def insert_block(
     if not parent_children_id or parent_children_id not in blocks.ykeys(children_map):
         raise ToolError(f"parent block {parent!r} has no children array")
 
+    is_image = block_type == "image"
     new_block_id = blocks.new_id()
-    new_text_id = blocks.new_id()
+    new_text_id = "" if is_image else blocks.new_id()
     new_children_id = blocks.new_id()
     state = doc.get_state()
     with doc.transaction():
         children_map[new_children_id] = blocks.YArray()
-        text_map[new_text_id] = blocks.YText()
-        t = text_map[new_text_id]
-        if delta is not None:
-            blocks.apply_delta_to_text(t, delta)
-        elif text:
-            t.insert(0, text)
+        if not is_image:
+            text_map[new_text_id] = blocks.YText()
+            t = text_map[new_text_id]
+            if delta is not None:
+                blocks.apply_delta_to_text(t, delta)
+            elif text:
+                t.insert(0, text)
         block_map[new_block_id] = blocks.YMap(
             {
                 "id": new_block_id,
                 "ty": block_type,
-                "data": blocks.block_data_json(block_type, heading_level, checked),
+                "data": blocks.block_data_json(block_type, heading_level, checked, url),
                 "parent": parent,
                 "children": new_children_id,
                 "external_id": new_text_id,
-                "external_type": "text",
+                "external_type": "" if is_image else "text",
             }
         )
         arr = children_map[parent_children_id]

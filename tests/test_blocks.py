@@ -118,6 +118,12 @@ def test_block_data_json_todo_list_checked():
     assert json.loads(blocks.block_data_json("todo_list", 1, True)) == {"checked": True}
 
 
+def test_block_data_json_image_uses_url():
+    assert json.loads(blocks.block_data_json("image", 1, False, "http://x/i.png")) == {
+        "url": "http://x/i.png"
+    }
+
+
 def test_block_data_json_other_is_empty_object():
     assert blocks.block_data_json("paragraph", 1, False) == "{}"
 

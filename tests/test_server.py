@@ -260,6 +260,20 @@ async def test_insert_block_without_text_or_delta(fake_client):
     assert "block_id" in out
 
 
+async def test_insert_block_image_requires_url(fake_client):
+    with pytest.raises(ToolError, match="requires a url"):
+        await server.insert_block("WS", "P", block_type="image")
+
+
+async def test_insert_block_image_embeds_url(fake_client):
+    fake_client.page_view_raw = page_view_for(build_collab())
+    out = await server.insert_block(
+        "WS", "P", block_type="image", url="http://x/i.png"
+    )
+    assert "block_id" in out
+    assert len(fake_client.web_updates) == 1
+
+
 async def test_insert_block_returns_raw_result_on_error(fake_client):
     fake_client.page_view_raw = page_view_for(build_collab())
     fake_client.web_update_result = {"error": "nope"}

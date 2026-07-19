@@ -212,7 +212,7 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
 | `Get page details` | Full page metadata + content |
 | `Append content to page` | Append blocks to the end |
 | `Get page blocks` | List a page's blocks in order (ids + text) |
-| `Insert block` | Insert a new block at any position |
+| `Insert block` | Insert a new block at any position (incl. an `image` from a public URL) |
 | `Edit block text` | Replace a block's text/rich content in place |
 | `Delete block` | Delete a leaf block |
 | `Create database` | Create a grid/board/calendar database under a parent |
@@ -230,6 +230,8 @@ Health check: `GET /healthz` → `{"status":"ok"}`.
 
 - Block-editing tools require `pycrdt` (bundled). They mirror the web client's
   CRDT `web-update`; there is no official per-block REST endpoint.
+- `Insert block` with `block_type="image"` embeds a public image URL by
+  reference (nothing is uploaded); remove it with `Delete block` like any block.
 - Database row cells are keyed by field **name or id**; values follow the field
   type (string for text/URL, number for Number, bool for Checkbox, ISO-8601 for
   DateTime). `Update database row` derives the row id from `pre_hash`, so reusing
