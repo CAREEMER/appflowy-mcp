@@ -186,11 +186,36 @@ async def test_get_page_view_raw_hits_endpoint():
     assert http.requests[0][1].endswith("/api/workspace/WS/page-view/P")
 
 
+async def test_get_collab_passes_collab_type():
+    http = FakeHTTP(request_responses=[FakeResponse(json_data={"doc_state": []})])
+    client = make_client(http, access_token="t")
+    await client.get_collab("WS", "OBJ", 4)
+    method, url, kw = http.requests[0]
+    assert method == "GET"
+    assert url.endswith("/api/workspace/v1/WS/collab/OBJ")
+    assert kw["params"] == {"collab_type": 4}
+
+
 async def test_post_web_update_success():
     http = FakeHTTP(post_responses=[FakeResponse(json_data={"applied": True})])
     client = make_client(http, access_token="t")
     result = await client.post_web_update("WS", "OBJ", b"\x01\x02")
     assert result == {"applied": True}
+
+
+async def test_post_web_update_sends_collab_type_in_body():
+    http = FakeHTTP(post_responses=[FakeResponse(json_data={"ok": True})])
+    client = make_client(http, access_token="t")
+    await client.post_web_update("WS", "OBJ", b"\x01\x02", collab_type=4)
+    body = http.posts[0][1]["json"]
+    assert body == {"doc_state": [1, 2], "collab_type": 4}
+
+
+async def test_post_web_update_defaults_collab_type_to_document():
+    http = FakeHTTP(post_responses=[FakeResponse(json_data={"ok": True})])
+    client = make_client(http, access_token="t")
+    await client.post_web_update("WS", "OBJ", b"\x01")
+    assert http.posts[0][1]["json"]["collab_type"] == 0
 
 
 async def test_post_web_update_reauthenticates_on_401():

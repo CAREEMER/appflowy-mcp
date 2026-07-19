@@ -78,6 +78,57 @@ def build_collab(blocks=None, page_id="root", with_children_map=True):
     return doc.get_update()
 
 
+def build_row_collab(cells=None):
+    """Encode a DatabaseRow collab (collab_type 4).
+
+    A row nests its fields under ``data.data``; ``cells`` maps *field id* ->
+    ``{field_type, data, created_at, last_modified}``. ``cells`` here is
+    ``{field_id: {"field_type": int, "data": str}}``.
+    """
+    doc = Doc()
+    root = doc.get("data", type=Map)
+    row = Map()
+    root["data"] = row
+    cell_map = Map()
+    row["cells"] = cell_map
+    row["last_modified"] = 0
+    for field_id, cell in (cells or {}).items():
+        cell_map[field_id] = Map(
+            {
+                "field_type": cell.get("field_type", 0),
+                "data": cell.get("data", ""),
+                "created_at": 0,
+                "last_modified": 0,
+            }
+        )
+    return {"doc_state": list(doc.get_update())}
+
+
+def build_database_collab(rows_by_view):
+    """Encode a Database collab (collab_type 1).
+
+    ``rows_by_view`` is ``{view_id: [row_id, ...]}``; each row becomes a RowOrder
+    under ``data.database.views.<view_id>.row_orders``. A view id mapped to
+    ``None`` gets no ``row_orders`` array at all (to exercise that branch).
+    """
+    doc = Doc()
+    root = doc.get("data", type=Map)
+    database = Map()
+    root["database"] = database
+    views = Map()
+    database["views"] = views
+    for view_id, row_ids in rows_by_view.items():
+        view = Map()
+        views[view_id] = view
+        if row_ids is None:
+            continue
+        orders = Array()
+        view["row_orders"] = orders
+        for row_id in row_ids:
+            orders.append(Map({"id": row_id, "height": 60}))
+    return {"doc_state": list(doc.get_update())}
+
+
 class FakeResponse:
     """Minimal stand-in for ``httpx.Response``."""
 
@@ -111,6 +162,9 @@ class FakeClient:
         self.page_view_raw = None
         self.web_update_result = {"ok": True}
         self.folder_result = {"data": {"view_id": "root", "children": []}}
+        # object_id -> scripted get_collab payload (or Exception).
+        self.collabs = {}
+        self.collab_calls = []
 
     async def request(self, method, path, **kw):
         self.requests.append((method, path, kw))
@@ -129,8 +183,15 @@ class FakeClient:
     async def get_page_view_raw(self, workspace_id, page_id):
         return self.page_view_raw
 
-    async def post_web_update(self, workspace_id, object_id, update):
-        self.web_updates.append((workspace_id, object_id, bytes(update)))
+    async def get_collab(self, workspace_id, object_id, collab_type):
+        self.collab_calls.append((workspace_id, object_id, collab_type))
+        result = self.collabs.get(object_id)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    async def post_web_update(self, workspace_id, object_id, update, collab_type=0):
+        self.web_updates.append((workspace_id, object_id, bytes(update), collab_type))
         return self.web_update_result
 
 

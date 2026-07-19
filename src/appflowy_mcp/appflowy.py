@@ -146,8 +146,17 @@ class AppFlowyClient:
             "GET", f"/api/workspace/{workspace_id}/page-view/{page_id}"
         )
 
+    async def get_collab(self, workspace_id: str, object_id: str, collab_type: int) -> Any:
+        """Read any collab's encoded state. collab_type: 0 Document, 1 Database,
+        4 DatabaseRow — see CollabType upstream."""
+        return await self.request(
+            "GET",
+            f"/api/workspace/v1/{workspace_id}/collab/{object_id}",
+            params={"collab_type": collab_type},
+        )
+
     async def post_web_update(
-        self, workspace_id: str, object_id: str, update: bytes
+        self, workspace_id: str, object_id: str, update: bytes, collab_type: int = 0
     ) -> dict:
         """Publish a Yrs update to a document collab (mirrors the web client)."""
         token = await self._ensure_token()
@@ -158,7 +167,7 @@ class AppFlowyClient:
             "Device-Id": "appflowy-mcp",
             "Content-Type": "application/json",
         }
-        body = {"doc_state": list(update), "collab_type": 0}
+        body = {"doc_state": list(update), "collab_type": collab_type}
         resp = await self._http.post(url, headers=headers, json=body)
         if resp.status_code == 401:
             token = await self._relogin()

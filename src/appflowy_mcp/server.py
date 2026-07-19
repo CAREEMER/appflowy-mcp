@@ -16,7 +16,7 @@ from fastmcp.server.dependencies import get_http_headers
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import blocks
+from . import blocks, rows
 from .access import AccessControl, AccessDenied
 from .appflowy import AppFlowyClient, AppFlowyError, unwrap
 from .config import Settings, load_settings
@@ -529,8 +529,16 @@ async def get_database_fields(workspace_id: str, database_id: str) -> Any:
     )
 
 
-@mcp.tool(name="get_database_rows")
-async def get_database_rows(
+def _row_ids(listed: Any) -> list[str]:
+    """Row ids out of a `GET .../database/{db}/row` payload; [] if malformed."""
+    rows = unwrap(listed)
+    if not isinstance(rows, list):
+        return []
+    return [r["id"] for r in rows if isinstance(r, dict) and r.get("id")]
+
+
+@mcp.tool(name="list_database_rows")
+async def list_database_rows(
     workspace_id: str,
     database_id: str,
     with_details: bool = True,
@@ -550,12 +558,7 @@ async def get_database_rows(
     listed = await _api("GET", base)
     if not with_details:
         return listed
-    rows = unwrap(listed)
-    ids = (
-        [r["id"] for r in rows if isinstance(r, dict) and r.get("id")]
-        if isinstance(rows, list)
-        else []
-    )
+    ids = _row_ids(listed)
     if not ids:
         return listed
     # ponytail: ids go in the query string; a database with thousands of rows
@@ -596,21 +599,47 @@ async def add_database_field(
     )
 
 
-@mcp.tool(name="add_database_row")
-async def add_database_row(
+@mcp.tool(name="get_database_row")
+async def get_database_row(
+    workspace_id: str,
+    database_id: str,
+    row_id: str,
+    with_doc: bool = False,
+) -> Any:
+    """Read one row's cells, keyed by field name.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to read; must be within your scope.
+        row_id: The row to read (from 'List database rows').
+        with_doc: Also return the row's attached document, rendered as markdown.
+    """
+    await _guard_database(workspace_id, database_id)
+    params: dict[str, Any] = {"ids": row_id}
+    if with_doc:
+        params["with_doc"] = "true"
+    return await _api(
+        "GET",
+        f"/api/workspace/{workspace_id}/database/{database_id}/row/detail",
+        params=params,
+    )
+
+
+@mcp.tool(name="create_database_row")
+async def create_database_row(
     workspace_id: str,
     database_id: str,
     cells: dict,
     document: str | None = None,
 ) -> Any:
-    """Add a new row to a database. Returns the new row id.
+    """Create a new row. Returns the new row id.
 
     Args:
         workspace_id: The workspace containing the database.
         database_id: The database to edit; must be within your scope.
         cells: {field name (or id): value} — string for Text/URL, number for
-            Number, bool for Checkbox, ISO-8601 string for DateTime. Unknown
-            fields are ignored.
+            Number, bool for Checkbox, ISO-8601 string for DateTime, option name
+            for SingleSelect. Unknown fields are ignored by AppFlowy.
         document: Optional markdown for the row's detail document.
     """
     await _guard_database(workspace_id, database_id)
@@ -622,33 +651,89 @@ async def add_database_row(
     )
 
 
+async def _database_fields(workspace_id: str, database_id: str) -> list:
+    fields = unwrap(
+        await _api("GET", f"/api/workspace/{workspace_id}/database/{database_id}/fields")
+    )
+    if not isinstance(fields, list):
+        raise ToolError(f"could not read the fields of database {database_id!r}")
+    return fields
+
+
+async def _load_collab(workspace_id: str, object_id: str, collab_type: int):
+    raw = await CLIENT.get_collab(workspace_id, object_id, collab_type)
+    try:
+        return rows.load_collab(unwrap(raw))
+    except Exception as exc:  # noqa: BLE001
+        raise ToolError(f"failed to read collab {object_id!r}: {exc}") from exc
+
+
 @mcp.tool(name="update_database_row")
 async def update_database_row(
     workspace_id: str,
     database_id: str,
-    pre_hash: str,
+    row_id: str,
     cells: dict,
-    document: str | None = None,
 ) -> Any:
-    """Create or update a row identified by a stable key (upsert).
-
-    The row id is derived deterministically from ``pre_hash``, so calling this
-    again with the same pre_hash updates the same row — use it for idempotent
-    syncs. Use 'Add database row' to always create a fresh row instead.
+    """Update an existing row's cells in place, leaving untouched cells alone.
 
     Args:
         workspace_id: The workspace containing the database.
         database_id: The database to edit; must be within your scope.
-        pre_hash: Stable key identifying the row (e.g. an external record id).
-        cells: {field name (or id): value}; see 'Add database row'.
-        document: Optional markdown for the row's detail document.
+        row_id: The row to update (from 'List database rows').
+        cells: {field name (or id): value} — string for Text/URL, number for
+            Number, bool for Checkbox, ISO-8601 string or unix seconds for
+            DateTime, option name (or id) for SingleSelect, list of option names
+            for MultiSelect. Call 'Get database fields' for the names and
+            options. An unknown field name is an error, not a silent no-op.
     """
+    if not blocks.HAS_PYCRDT:
+        raise ToolError("pycrdt is not installed; row editing is unavailable")
     await _guard_database(workspace_id, database_id)
-    body: dict[str, Any] = {"pre_hash": pre_hash, "cells": cells}
-    if document is not None:
-        body["document"] = document
-    return await _api(
-        "PUT", f"/api/workspace/{workspace_id}/database/{database_id}/row", json=body
+    fields = await _database_fields(workspace_id, database_id)
+    try:
+        resolved = rows.resolve_cells(fields, cells)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    doc = await _load_collab(workspace_id, row_id, rows.COLLAB_DATABASE_ROW)
+    state = doc.get_state()
+    try:
+        with doc.transaction():
+            rows.write_cells(doc, resolved)
+    except ValueError as exc:
+        raise ToolError(f"row {row_id!r}: {exc}") from exc
+    return await CLIENT.post_web_update(
+        workspace_id, row_id, doc.get_update(state), rows.COLLAB_DATABASE_ROW
+    )
+
+
+@mcp.tool(name="delete_database_row")
+async def delete_database_row(
+    workspace_id: str,
+    database_id: str,
+    row_id: str,
+) -> Any:
+    """Delete a row from a database.
+
+    Removes the row from every view of the database, which is what deleting a row
+    means in AppFlowy — the client does the same.
+
+    Args:
+        workspace_id: The workspace containing the database.
+        database_id: The database to edit; must be within your scope.
+        row_id: The row to delete (from 'List database rows').
+    """
+    if not blocks.HAS_PYCRDT:
+        raise ToolError("pycrdt is not installed; row editing is unavailable")
+    await _guard_database(workspace_id, database_id)
+    doc = await _load_collab(workspace_id, database_id, rows.COLLAB_DATABASE)
+    state = doc.get_state()
+    with doc.transaction():
+        removed = rows.remove_row_orders(doc, row_id)
+    if not removed:
+        raise ToolError(f"row {row_id!r} is not in any view of database {database_id!r}")
+    return await CLIENT.post_web_update(
+        workspace_id, database_id, doc.get_update(state), rows.COLLAB_DATABASE
     )
 
 

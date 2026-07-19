@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 from fastmcp.exceptions import ToolError
+from pycrdt import Doc, Map
 
-from appflowy_mcp import blocks, server
+from appflowy_mcp import blocks, rows, server
 from appflowy_mcp.access import AccessControl
 from appflowy_mcp.appflowy import AppFlowyError
 from appflowy_mcp.config import (
@@ -14,7 +15,7 @@ from appflowy_mcp.config import (
     Settings,
     TokenConfig,
 )
-from tests.conftest import build_collab
+from tests.conftest import build_collab, build_database_collab, build_row_collab
 
 
 def page_view_for(collab_bytes):
@@ -384,53 +385,65 @@ async def test_get_database_fields_hits_endpoint(fake_client):
     assert fake_client.requests[0][1].endswith("/database/DB/fields")
 
 
-async def test_get_database_rows_with_details(fake_client):
+async def test_list_database_rows_with_details(fake_client):
     fake_client.results["/row"] = {"data": [{"id": "r1"}]}
     fake_client.results["/row/detail"] = {"data": [{"id": "r1", "cells": {"Name": "x"}}]}
-    out = await server.get_database_rows("WS", "DB")
+    out = await server.list_database_rows("WS", "DB")
     assert out == {"data": [{"id": "r1", "cells": {"Name": "x"}}]}
 
 
-async def test_get_database_rows_passes_joined_ids(fake_client):
+async def test_list_database_rows_passes_joined_ids(fake_client):
     fake_client.results["/row"] = {"data": [{"id": "r1"}, {"id": "r2"}]}
     fake_client.results["/row/detail"] = {"data": []}
-    await server.get_database_rows("WS", "DB")
+    await server.list_database_rows("WS", "DB")
     detail = next(r for r in fake_client.requests if r[1].endswith("/detail"))
     assert detail[2]["params"]["ids"] == "r1,r2"
 
 
-async def test_get_database_rows_with_doc_param(fake_client):
+async def test_list_database_rows_with_doc_param(fake_client):
     fake_client.results["/row"] = {"data": [{"id": "r1"}]}
     fake_client.results["/row/detail"] = {"data": []}
-    await server.get_database_rows("WS", "DB", with_doc=True)
+    await server.list_database_rows("WS", "DB", with_doc=True)
     detail = next(r for r in fake_client.requests if r[1].endswith("/detail"))
     assert detail[2]["params"]["with_doc"] == "true"
 
 
-async def test_get_database_rows_ids_only(fake_client):
+async def test_list_database_rows_ids_only(fake_client):
     fake_client.request_result = {"data": [{"id": "r1"}]}
-    out = await server.get_database_rows("WS", "DB", with_details=False)
+    out = await server.list_database_rows("WS", "DB", with_details=False)
     assert out == {"data": [{"id": "r1"}]}
 
 
-async def test_get_database_rows_no_ids_returns_listed(fake_client):
+async def test_list_database_rows_no_ids_returns_listed(fake_client):
     fake_client.results["/row"] = {"data": []}
-    out = await server.get_database_rows("WS", "DB")
+    out = await server.list_database_rows("WS", "DB")
     assert out == {"data": []}
 
 
-async def test_get_database_rows_non_list_returns_listed(fake_client):
+async def test_list_database_rows_non_list_returns_listed(fake_client):
     fake_client.results["/row"] = {"data": {"weird": 1}}
-    out = await server.get_database_rows("WS", "DB")
+    out = await server.list_database_rows("WS", "DB")
     assert out == {"data": {"weird": 1}}
 
 
-async def test_get_database_rows_skips_malformed_rows(fake_client):
+async def test_list_database_rows_skips_malformed_rows(fake_client):
     fake_client.results["/row"] = {"data": ["bad", {"no_id": 1}, {"id": "r1"}]}
     fake_client.results["/row/detail"] = {"data": []}
-    await server.get_database_rows("WS", "DB")
+    await server.list_database_rows("WS", "DB")
     detail = next(r for r in fake_client.requests if r[1].endswith("/detail"))
     assert detail[2]["params"]["ids"] == "r1"
+
+
+async def test_get_database_row_hits_detail_endpoint(fake_client):
+    await server.get_database_row("WS", "DB", "r1")
+    req = fake_client.requests[-1]
+    assert req[1].endswith("/database/DB/row/detail")
+    assert req[2]["params"] == {"ids": "r1"}
+
+
+async def test_get_database_row_with_doc_param(fake_client):
+    await server.get_database_row("WS", "DB", "r1", with_doc=True)
+    assert fake_client.requests[-1][2]["params"]["with_doc"] == "true"
 
 
 async def test_add_database_field_minimal(fake_client):
@@ -445,29 +458,78 @@ async def test_add_database_field_with_type_option(fake_client):
     assert fake_client.requests[0][2]["json"]["type_option_data"] == {"format": 1}
 
 
-async def test_add_database_row_minimal(fake_client):
-    await server.add_database_row("WS", "DB", {"Name": "x"})
+async def test_create_database_row_minimal(fake_client):
+    await server.create_database_row("WS", "DB", {"Name": "x"})
     assert fake_client.requests[0][2]["json"] == {"cells": {"Name": "x"}}
 
 
-async def test_add_database_row_with_document(fake_client):
-    await server.add_database_row("WS", "DB", {"Name": "x"}, document="# notes")
+async def test_create_database_row_with_document(fake_client):
+    await server.create_database_row("WS", "DB", {"Name": "x"}, document="# notes")
     assert fake_client.requests[0][2]["json"]["document"] == "# notes"
 
 
-async def test_update_database_row_minimal(fake_client):
-    await server.update_database_row("WS", "DB", "key-1", {"Name": "x"})
-    assert fake_client.requests[0][2]["json"] == {"pre_hash": "key-1", "cells": {"Name": "x"}}
+TEXT_FIELDS = {"data": [{"id": "f1", "name": "Name", "field_type_id": 0}]}
 
 
-async def test_update_database_row_with_document(fake_client):
-    await server.update_database_row("WS", "DB", "key-1", {"Name": "x"}, document="d")
-    assert fake_client.requests[0][2]["json"]["document"] == "d"
+async def test_database_fields_non_list_raises(fake_client):
+    fake_client.results["/fields"] = {"data": {"not": "a list"}}
+    with pytest.raises(ToolError, match="could not read the fields"):
+        await server._database_fields("WS", "DB")
 
 
-async def test_update_database_row_uses_put(fake_client):
-    await server.update_database_row("WS", "DB", "key-1", {})
-    assert fake_client.requests[0][0] == "PUT"
+async def test_load_collab_wraps_decode_error(fake_client):
+    fake_client.collabs["r1"] = {"doc_state": [1, 2, 3]}
+    with pytest.raises(ToolError, match="failed to read collab 'r1'"):
+        await server._load_collab("WS", "r1", rows.COLLAB_DATABASE_ROW)
+
+
+async def test_update_database_row_requires_pycrdt(monkeypatch):
+    monkeypatch.setattr(blocks, "HAS_PYCRDT", False)
+    with pytest.raises(ToolError, match="pycrdt is not installed"):
+        await server.update_database_row("WS", "DB", "r1", {"Name": "x"})
+
+
+async def test_update_database_row_unknown_field_raises(fake_client):
+    fake_client.results["/fields"] = TEXT_FIELDS
+    with pytest.raises(ToolError, match="unknown field"):
+        await server.update_database_row("WS", "DB", "r1", {"Ghost": "x"})
+
+
+async def test_update_database_row_writes_cell_and_posts(fake_client):
+    fake_client.results["/fields"] = TEXT_FIELDS
+    fake_client.collabs["r1"] = build_row_collab()
+    await server.update_database_row("WS", "DB", "r1", {"Name": "hello"})
+    ws, obj, _update, collab_type = fake_client.web_updates[-1]
+    assert (ws, obj, collab_type) == ("WS", "r1", rows.COLLAB_DATABASE_ROW)
+
+
+async def test_update_database_row_missing_cells_map_raises(fake_client):
+    fake_client.results["/fields"] = TEXT_FIELDS
+    doc = Doc()
+    doc.get("data", type=Map)["data"] = Map()
+    fake_client.collabs["r1"] = {"doc_state": list(doc.get_update())}
+    with pytest.raises(ToolError, match="row 'r1': row collab has no cells map"):
+        await server.update_database_row("WS", "DB", "r1", {"Name": "x"})
+
+
+async def test_delete_database_row_requires_pycrdt(monkeypatch):
+    monkeypatch.setattr(blocks, "HAS_PYCRDT", False)
+    with pytest.raises(ToolError, match="pycrdt is not installed"):
+        await server.delete_database_row("WS", "DB", "r1")
+
+
+async def test_delete_database_row_strips_row_orders(fake_client):
+    fake_client.collabs["DB"] = build_database_collab({"V": ["r1", "r2"]})
+    await server.delete_database_row("WS", "DB", "r1")
+    ws, obj, _update, collab_type = fake_client.web_updates[-1]
+    assert (ws, obj, collab_type) == ("WS", "DB", rows.COLLAB_DATABASE)
+
+
+async def test_delete_database_row_not_found_raises(fake_client):
+    fake_client.collabs["DB"] = build_database_collab({"V": ["r2"]})
+    with pytest.raises(ToolError, match="is not in any view"):
+        await server.delete_database_row("WS", "DB", "missing")
+    assert fake_client.web_updates == []
 
 
 # -- trash + favorites -----------------------------------------------------
